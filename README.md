@@ -44,6 +44,7 @@ Summary of the optimizations:
     * `coordinate_descent_tuning = True`
     * `coordinate_descent_check_all_directions = True`
 * `torch.export` + Ahead-of-time Inductor (AOTI) + CUDAGraphs
+* cache acceleration with `cache-dit: DBCache`
 
 All of the above optimizations are lossless (outside of minor numerical differences sometimes
 introduced through the use of `torch.compile` / `torch.export`) EXCEPT FOR dynamic float8 quantization.
@@ -139,31 +140,33 @@ Currently, only torch.export is not working as expected. Instead, use `torch.com
 [`run_benchmark.py`](./run_benchmark.py) is the main script for benchmarking the different optimization techniques.
 Usage:
 ```
-usage: run_benchmark.py [-h] [--ckpt CKPT] [--prompt PROMPT] [--cache-dir CACHE_DIR]
-                        [--device {cuda,cpu}] [--num_inference_steps NUM_INFERENCE_STEPS]
-                        [--output-file OUTPUT_FILE] [--trace-file TRACE_FILE] [--disable_bf16]
-                        [--compile_export_mode {compile,export_aoti,disabled}]
-                        [--disable_fused_projections] [--disable_channels_last] [--disable_fa3]
-                        [--disable_quant] [--disable_inductor_tuning_flags]
+usage: run_benchmark.py [-h] [--ckpt CKPT] [--prompt PROMPT] [--image IMAGE] [--cache-dir CACHE_DIR]
+                        [--use-cached-model] [--device {cuda,cpu}] [--num_inference_steps NUM_INFERENCE_STEPS] 
+                        [--output-file OUTPUT_FILE] [--seed SEED] [--trace-file TRACE_FILE] [--disable_bf16]
+                        [--compile_export_mode {compile,export_aoti,disabled}] [--disable_fused_projections] 
+                        [--disable_channels_last] [--disable_fa3] [--disable_quant] [--disable_inductor_tuning_flags] 
+                        [--cache_dit_config CACHE_DIT_CONFIG]
 
 options:
   -h, --help            show this help message and exit
-  --ckpt CKPT           Model checkpoint path (default: black-forest-labs/FLUX.1-schnell)
+  --ckpt {black-forest-labs/FLUX.1-schnell,black-forest-labs/FLUX.1-dev,black-forest-labs/FLUX.1-Kontext-dev}
+                        Model checkpoint path (default: black-forest-labs/FLUX.1-schnell)
   --prompt PROMPT       Text prompt (default: A cat playing with a ball of yarn)
+  --image IMAGE         Image to use for Kontext (default: None)
   --cache-dir CACHE_DIR
-                        Cache directory for storing exported models (default:
-                        ~/.cache/flux-fast)
+                        Cache directory for storing exported models (default: ~/.cache/flux-fast)
+  --use-cached-model    Attempt to use cached model only (don't re-export) (default: False)
   --device {cuda,cpu}   Device to use (default: cuda)
   --num_inference_steps NUM_INFERENCE_STEPS
                         Number of denoising steps (default: 4)
   --output-file OUTPUT_FILE
                         Output image file path (default: output.png)
+  --seed SEED           Random seed to use (default: 42)
   --trace-file TRACE_FILE
                         Output PyTorch Profiler trace file path (default: None)
   --disable_bf16        Disables usage of torch.bfloat16 (default: False)
   --compile_export_mode {compile,export_aoti,disabled}
-                        Configures how torch.compile or torch.export + AOTI are used (default:
-                        export_aoti)
+                        Configures how torch.compile or torch.export + AOTI are used (default: export_aoti)
   --disable_fused_projections
                         Disables fused q,k,v projections (default: False)
   --disable_channels_last
@@ -172,6 +175,8 @@ options:
   --disable_quant       Disables usage of dynamic float8 quantization (default: False)
   --disable_inductor_tuning_flags
                         Disables use of inductor tuning flags (default: False)
+  --cache_dit_config CACHE_DIT_CONFIG
+                        Cache options config of cache-dit: DBCache (default: None)
 ```
 
 Note that all optimizations are on by default and each can be individually toggled. Example run:
@@ -665,5 +670,73 @@ pipeline = use_export_aoti(pipeline, cache_dir=args.cache_dir, serialize=False)
 prompt = "A cat playing with a ball of yarn"
 image = pipe(prompt, num_inference_steps=4).images[0]
 ```
+
+</details>
+
+
+<details>
+  <summary>cache acceleration with cache-dit: DBCache</summary>
+
+You can use `cache-dit` to further speedup FLUX model, different configurations of compute blocks (F12B12, etc.) can be customized in cache-dit: DBCache. Please check [cache-dit](https://github.com/vipshop/cache-dit) for more details. For example:
+
+```python
+# Install: pip install -U cache-dit
+from diffusers import FluxPipeline
+from cache_dit.cache_factory import apply_cache_on_pipe, CacheType
+
+pipeline = FluxPipeline.from_pretrained(
+    "black-forest-labs/FLUX.1-dev",
+    torch_dtype=torch.bfloat16,
+).to("cuda")
+
+# cache-dit: DBCache configs
+cache_options = {
+    "cache_type": CacheType.DBCache,
+    "warmup_steps": 0,
+    "max_cached_steps": -1,  # -1 means no limit
+    "Fn_compute_blocks": 1,  # Fn, F1, F12, etc.
+    "Bn_compute_blocks": 0,  # Bn, B0, B12, etc.
+    "residual_diff_threshold": 0.12,
+    # TaylorSeer options
+    "enable_taylorseer": True,
+    "enable_encoder_taylorseer": True,
+    # Taylorseer cache type cache be hidden_states or residual
+    "taylorseer_cache_type": "residual",
+    "taylorseer_kwargs": {
+         "n_derivatives": 2,
+    },
+}
+
+apply_cache_on_pipe(pipeline, **cache_options)
+```
+
+By the way, `cache-dit` is designed to work compatibly with torch.compile. You can easily use `cache-dit` with torch.compile to further achieve a better performance. For example:
+
+```python
+apply_cache_on_pipe(pipeline, **cache_options)
+
+# The cache-dit relies heavily on dynamic Python operations to maintain the cache_context, 
+# so it is necessary to introduce graph breaks at appropriate positions to be compatible 
+# with torch.compile. Thus, we compile the transformer with `max-autotune-no-cudagraphs` 
+# mode if cache-dit is enabled. Otherwise, we compile with `max-autotune` mode.
+pipeline.transformer = torch.compile(
+    pipeline.transformer, 
+    mode="max-autotune-no-cudagraphs", 
+    fullgraph=False, 
+)
+```
+
+Under the configuration of `cache-dit + F1B0 + no warmup + TaylorSeer`, it only takes 7.42 seconds on NVIDIA L20, with a cumulative speedup of 3.36x (compared to the baseline of 24.94 seconds), while still maintaining high precision with a PSNR of 23.23.
+
+|FLUX.1-dev 28 steps, Baseline: BF16 + w/o torch.compile + w/o cache-dit |BF16 + compile + qkv projection + channels_last + float8 quant + inductor flags|BF16 + compile + qkv projection + channels_last + float8 quant + inductor flags + `cache-dit + F1B0 + no warmup + TaylorSeer` |  
+|:---:|:---:|:---:|
+|PSNR: inf|PSNR: 21.77|PSNR: 23.23|
+|L20: 24.94s|L20: 13.26s|L20: 7.42s|
+|![output](https://github.com/user-attachments/assets/4a9237c5-5736-483b-85f7-38ab6c417009)|![bf16_compile_qkv_chan_quant_flags_trn](https://github.com/user-attachments/assets/958ae267-0351-4f85-b378-f863d9d3038c)|![bf16_cache_F1B0W0M0_taylorseer_compile_qkv_chan_quant_flags_trn](https://github.com/user-attachments/assets/aa7538b1-b0e8-4ea4-b9ca-0d32e946d5b8)|
+
+### Important Notes
+
+1) Please add `--cache_dit_config cache_config.yaml` flag to use cache-dit. cache-dit doesn't work with torch.export now. cache-dit extends Flux and introduces some Python dynamic operations, so it may not be possible to export the model using torch.export.
+2) Please modify the [cache_config.yaml](./cache_config.yaml) file to change the configuration of cache-dit: DBCache, so as to test the effects and performance under different configurations.
 
 </details>

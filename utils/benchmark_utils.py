@@ -54,6 +54,9 @@ def create_parser():
     # flags for tuning inductor
     parser.add_argument("--disable_inductor_tuning_flags", action="store_true",
                         help="Disables use of inductor tuning flags")
+    # cache-dit: DBCache configs
+    parser.add_argument("--cache_dit_config", type=str, default=None,
+                        help="Cache options config of cache-dit: DBCache")
     return parser
 
 
