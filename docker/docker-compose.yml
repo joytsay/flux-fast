@@ -1,0 +1,27 @@
+services:
+  aot-build:
+    image: dd1:5000/joy.tsay:aot-cuda12.9
+    container_name: aotBuild
+    build:
+      context: .
+      args:
+        - BASE_IMAGE=dd1:5000/pytorch:2.9.0-cuda12.9-cudnn9
+        - USERNAME=joy.tsay
+        - USERID=5004
+        - GROUPID=100
+  aot-run:
+    image: dd1:5000/joy.tsay:aot-cuda12.9
+    working_dir: /code/flux-fast
+    container_name: aotTrain
+    privileged: true
+    shm_size: 10g
+    volumes:
+      - /nfs/home/joy.tsay:/code
+    command: "tail -f /dev/null"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
