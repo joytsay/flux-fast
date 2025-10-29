@@ -4,6 +4,11 @@ Making Flux go brrr on GPUs. With simple recipes from this repo, we enabled ~2.5
 Check out the accompanying blog post [here](https://pytorch.org/blog/presenting-flux-fast-making-flux-go-brrr-on-h100s/).
 
 **Updates**
+**October 29, 2025**: Add dummy benchmark model and add plotting chart script. Run 
+```sh
+./experiments_dummy.sh
+python plot_dummy_benchmarks.py
+```
 
 **July 18, 2025**: First caching mechanism in `flux-fast` with `cache-dit`. Check out the accompanying [PR](https://github.com/huggingface/flux-fast/pull/13). Thanks to @DefTruth for the contribution!
 
@@ -21,6 +26,10 @@ Check out the accompanying blog post [here](https://pytorch.org/blog/presenting-
     </tr>
   </thead>
   <tbody>
+    <tr>
+      <td>Dummy-model</td>
+      <td><img src="https://github.com/joytsay/flux-fast/blob/main/dummy_benchmark_runtime.png?raw=true" width=500 alt="new_flux_schnell_plot" /></td>
+    </tr>
     <tr>
       <td>Flux.1-Schnell</td>
       <td><img src="https://github.com/user-attachments/assets/3f18d621-bdcd-423d-a66c-fd34bbd90f27" width=500 alt="new_flux_schnell_plot" /></td>
