@@ -45,7 +45,7 @@ def load_runtimes(root_dir: str) -> Dict[str, float]:
     return runtimes
 
 
-def plot_runtimes(runtimes: Dict[str, float], output_path: str) -> None:
+def plot_runtimes(runtimes: Dict[str, float], title: str) -> None:
     labels = list(runtimes.keys())
     means = [runtimes[label] * 1_000 for label in labels]  # convert to milliseconds
 
@@ -54,7 +54,8 @@ def plot_runtimes(runtimes: Dict[str, float], output_path: str) -> None:
     bars = ax.bar(x_positions, means, color="#4C72B0")
     ax.set_ylabel("Mean Runtime (ms)")
     ax.set_xlabel("Experiment")
-    ax.set_title("Dummy Benchmark Runtime Comparison")
+    title = title + "_Benchmark_Runtime_Comparison"
+    ax.set_title(title)
     ax.set_xticks(x_positions)
     ax.set_xticklabels(labels, rotation=30, ha="right")
     ax.grid(axis="y", linestyle="--", alpha=0.4)
@@ -72,6 +73,7 @@ def plot_runtimes(runtimes: Dict[str, float], output_path: str) -> None:
         )
 
     plt.tight_layout()
+    output_path = title + ".png"
     fig.savefig(output_path)
 
 
@@ -85,14 +87,14 @@ def main() -> None:
         help="Directory containing the *.txt benchmark outputs (default: current directory).",
     )
     parser.add_argument(
-        "--output",
-        default="dummy_benchmark_runtime.png",
-        help="Path for the generated chart image (default: dummy_benchmark_runtime.png).",
+        "--title",
+        default="Dummy",
+        help="Title for the generated plot.",
     )
     args = parser.parse_args()
 
     runtimes = load_runtimes(args.logs_root)
-    plot_runtimes(runtimes, args.output)
+    plot_runtimes(runtimes, args.title)
 
 
 if __name__ == "__main__":
