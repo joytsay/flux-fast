@@ -4,10 +4,18 @@ Making Flux go brrr on GPUs. With simple recipes from this repo, we enabled ~2.5
 Check out the accompanying blog post [here](https://pytorch.org/blog/presenting-flux-fast-making-flux-go-brrr-on-h100s/).
 
 **Updates**
+**October 30, 2025**: Add GFPGAN model. Run 
+```sh
+./experiments_gfpgan.sh
+python plot_benchmarks.py --title GFPGAN
+python run_benchmark_gfpgan.py --trace-file fully_optimized.json.gz
+python gen_gfpgan.py --image quant/source.png --package gfpgan_aoti.pt2
+```
+
 **October 29, 2025**: Add dummy benchmark model and add plotting chart script. Run 
 ```sh
 ./experiments_dummy.sh
-python plot_dummy_benchmarks.py
+python plot_benchmarks.py --title Dummy
 ```
 
 **July 18, 2025**: First caching mechanism in `flux-fast` with `cache-dit`. Check out the accompanying [PR](https://github.com/huggingface/flux-fast/pull/13). Thanks to @DefTruth for the contribution!
@@ -26,6 +34,10 @@ python plot_dummy_benchmarks.py
     </tr>
   </thead>
   <tbody>
+    <tr>
+      <td>GFPGAN-model</td>
+      <td><img src="https://github.com/joytsay/flux-fast/blob/main/GFPGAN_Benchmark_Runtime_Comparison.png?raw=true?raw=true" width=500 alt="new_flux_schnell_plot" /></td>
+    </tr>
     <tr>
       <td>Dummy-model</td>
       <td><img src="https://github.com/joytsay/flux-fast/blob/main/dummy_benchmark_runtime.png?raw=true" width=500 alt="new_flux_schnell_plot" /></td>
@@ -61,6 +73,28 @@ All of the above optimizations are lossless (outside of minor numerical differen
 introduced through the use of `torch.compile` / `torch.export`) EXCEPT FOR dynamic float8 quantization.
 Disable quantization if you want the same quality results as the baseline while still being
 quite a bit faster.
+
+Here are some example outputs with GFPGAN:
+
+<table>
+  <thead>
+    <tr>
+      <th>Configuration</th>
+      <th>Output</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Original</strong></td>
+      <td><img src="https://github.com/joytsay/flux-fast/blob/main/quant/source.png?raw=true" alt="baseline_output" width=400/></td>
+    </tr>
+    <tr>
+      <td><strong>Fully-optimized (with quantization)</strong></td>
+      <td><img src="https://github.com/joytsay/flux-fast/blob/main/quant/source_gfpgan_aoti_output.png?raw=true" alt="fast_output" width=400/></td>
+    </tr>
+  </tbody>
+</table>
+
 
 Here are some example outputs with Flux.1-Schnell for prompt `"A cat playing with a ball of yarn"`:
 
