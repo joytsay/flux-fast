@@ -228,6 +228,18 @@ def main() -> None:
         dtype = torch.float32
 
     model = _build_model(args.model_name, args.model_path, device, dtype)
+
+    # apply float8 quantization
+    if not args.disable_quant:
+        from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight, float8_dynamic_activation_float8_weight #, PerRow
+
+        quantize_(
+            model,
+            int8_dynamic_activation_int8_weight(set_inductor_config=True),
+            # float8_dynamic_activation_float8_weight(),
+            # float8_dynamic_activation_float8_weight(granularity=PerRow()),
+        )
+
     image_path = args.image or "quant/source.png"
     input_tensor = _prepare_input(image_path, device, dtype)
 
