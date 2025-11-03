@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import torch
 from torchvision.transforms.functional import normalize
+from torchvision.utils import save_image
 
 
 def _create_parser() -> argparse.ArgumentParser:
@@ -56,6 +57,12 @@ def _create_parser() -> argparse.ArgumentParser:
         default=5,
         help="Number of timed iterations used for mean/variance reporting.",
     )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=5,
+        help="Batch size for benchmarking (reuses the same image for each sample).",
+    )
     return parser
 
 
@@ -66,7 +73,12 @@ def _set_rand_seeds(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def _prepare_input(image_path: str, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+def _prepare_input(
+    image_path: str,
+    device: torch.device,
+    dtype: torch.dtype,
+    batch_size: int,
+) -> torch.Tensor:
     image = cv2.imread(image_path)
     if image is None:
         raise FileNotFoundError(f"Unable to read image {image_path}")
@@ -76,8 +88,11 @@ def _prepare_input(image_path: str, device: torch.device, dtype: torch.dtype) ->
     image_f32 = image.astype("float32") / 255.0
     tensor = torch.from_numpy(image_f32.transpose(2, 0, 1))
     normalize(tensor, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
-    tensor = tensor.unsqueeze(0).to(device=device, dtype=dtype)
-    return tensor
+    tensor = tensor.unsqueeze(0)
+    if batch_size > 1:
+        tensor = tensor.repeat(batch_size, 1, 1, 1)
+    tensor = tensor.to(device=device)
+    return tensor.to(dtype=dtype)
 
 
 def _tensor_to_image(tensor: torch.Tensor) -> np.ndarray:
@@ -133,7 +148,7 @@ def main() -> None:
 
     compiled_module = _load_package(args.package)
 
-    input_tensor = _prepare_input(args.image, device, dtype)
+    input_tensor = _prepare_input(args.image, device, dtype, args.batch_size)
 
     timings = []
     restored = None
@@ -172,12 +187,15 @@ def main() -> None:
     else:
         print("No benchmark iterations executed; skipping timing statistics.")
 
-    image = _tensor_to_image(restored)
+
     _ensure_output_dir(args.output)
-    args.image  = args.image.replace(".png", "_")
-    args.output = args.image + args.output
-    cv2.imwrite(args.output, image)
-    print(f"Saved enhanced image to {args.output}")
+    base, ext = os.path.splitext(args.image)
+    for idx in range(args.batch_size):
+        breakpoint()
+        output_img = _tensor_to_image(restored[idx])
+        output_pth = f"{base}_b{idx}{ext}"
+        cv2.imwrite(output_pth, output_img)
+
 
 
 if __name__ == "__main__":

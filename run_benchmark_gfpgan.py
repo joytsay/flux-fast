@@ -54,6 +54,12 @@ def _create_parser():
         help="Number of timed iterations.",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=5,
+        help="Batch size for benchmarking (reuses the same image for each sample).",
+    )
+    parser.add_argument(
         "--package-name",
         type=str,
         default=None,
@@ -99,7 +105,12 @@ def _build_model(model_name: str, model_path: str, device: torch.device, dtype: 
     return model
 
 
-def _prepare_input(image_path: str, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+def _prepare_input(
+    image_path: str,
+    device: torch.device,
+    dtype: torch.dtype,
+    batch_size: int,
+) -> torch.Tensor:
     image = cv2.imread(image_path)
     if image is None:
         raise FileNotFoundError(f"Unable to read image {image_path}")
@@ -109,7 +120,10 @@ def _prepare_input(image_path: str, device: torch.device, dtype: torch.dtype) ->
     image_f32 = image.astype("float32") / 255.0
     tensor = torch.from_numpy(image_f32.transpose(2, 0, 1))
     normalize(tensor, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
-    tensor = tensor.unsqueeze(0).to(device=device)
+    tensor = tensor.unsqueeze(0)
+    if batch_size > 1:
+        tensor = tensor.repeat(batch_size, 1, 1, 1)
+    tensor = tensor.to(device=device)
     return tensor.to(dtype=dtype)
 
 
@@ -197,6 +211,16 @@ def _benchmark(
 
 def _save_output(output: torch.Tensor, path: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True) if os.path.dirname(path) else None
+
+    if output.dim() == 4:
+        batch_size = output.size(0)
+        base, ext = os.path.splitext(path)
+        for idx in range(batch_size):
+            image = _tensor_to_image(output[idx])
+            suffix = "" if idx == 0 else f"_{idx}"
+            cv2.imwrite(f"{base}{suffix}{ext}", image)
+        return
+
     image = _tensor_to_image(output)
     cv2.imwrite(path, image)
 
@@ -241,7 +265,7 @@ def main() -> None:
         )
 
     image_path = args.image or "quant/source.png"
-    input_tensor = _prepare_input(image_path, device, dtype)
+    input_tensor = _prepare_input(image_path, device, dtype, args.batch_size)
 
     if args.compile_export_mode == "compile":
         model = _apply_compile(model)
@@ -277,7 +301,7 @@ def main() -> None:
     print(f"time mean/var: {timings} {mean_time} {var_time}")
 
     with torch.no_grad():
-        result = forward(input_tensor)[0]
+        result = forward(input_tensor)
     trace_file = args.trace_file.replace(".json.gz", "_")
     output_file = trace_file + args.output_file
     _save_output(result, output_file)
